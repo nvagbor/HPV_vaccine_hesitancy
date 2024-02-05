@@ -49,6 +49,7 @@ knitr::opts_chunk$set(echo = FALSE)
 # Data exploration ---
 
 In total, `nrow(df)` participants were included in the study. 
+
 ```{r}
 
 # Filter missing first row 
@@ -104,16 +105,67 @@ df_clean <-
   df_clean %>% 
   select(-timestamp) %>% 
   mutate(
-    health_area=case_when(health_area == "Mira" ~ "Muea", TRUE ~ health_area), 
-    employment_status=case_when(employment_status=="Umemployed" ~ "Unemployed", 
-                                TRUE ~ employment_status), 
+    health_area=case_when(health_area=="Mira" ~ "Muea", TRUE ~ health_area),
+    education=case_when(
+      education=="No formal education" ~ "No formal", 
+      education=="Post-secondary/Technical" ~ "Post-secondary", 
+      education=="Tertiary/University/Professional designation" ~ "Tertiary",
+      TRUE ~ education),
+    religion=case_when(
+      religion=="Pentacostal" | religion=="Pentecostal" ~ "Pentecostal", 
+      religion=="Bahai" | religion=="Islam" ~ "Islam", 
+      TRUE ~ religion),
+    employment_status=case_when(employment_status=="Umemployed" ~ "Unemployed", TRUE ~ employment_status), 
+    employment_status=case_when(
+      employment_status=="Employed (agricultural work)" ~ "Employed (manual)", 
+      employment_status=="Retired" | employment_status=="House wife" | employment_status=="Student" ~ "Unemployed",
+      TRUE ~ employment_status),
+    h_income=case_when(h_income=="200,000 - <250,000" | h_income=="≥250,000" ~ "≥200,000", TRUE ~ h_income),
     is_cc_severe=case_when(heard_of_cc=="No" ~ "Never heard of CC", TRUE ~ is_cc_severe), 
     hpv_causes_cc=case_when(heard_of_hpv=="No" ~ "Never heard of HPV", TRUE ~ hpv_causes_cc),
-    knows_cc_vax_exist=case_when(heard_of_hpv=="No" & heard_of_cc=="No" ~ "Never heard of HPV or CC", 
-                                 TRUE ~ knows_cc_vax_exist)
-    )
+    knows_cc_vax_exist=case_when(heard_of_hpv=="No" & heard_of_cc=="No" ~ "Never heard of HPV or CC", TRUE ~ knows_cc_vax_exist), 
+    hesitancy=case_when(has_hpvvax_child!="Yes" & accept_hpvvax_for_child!="Yes" ~ "Yes", TRUE ~ "No"))
 
 df_clean %>% mutate(across(where(is.character), ~as.factor(.x)))
+
+# Imput missing data -- 
+df_clean <- mutate(
+  df_clean, 
+  gender=case_when(is.na(gender) ~ "Female", TRUE ~ gender), 
+  marital_status=case_when(is.na(marital_status) ~ "Married", TRUE ~ marital_status), 
+  education=case_when(is.na(education) ~ "Tertiary", TRUE ~ education), 
+  religion=case_when(is.na(religion) ~ "Pentecostal", TRUE ~ religion),
+  heard_of_hpv=case_when(is.na(heard_of_hpv) ~ "Yes", TRUE ~ heard_of_hpv), 
+  hpv_causes_cc=case_when(is.na(hpv_causes_cc) ~ "Never heard of HPV", TRUE ~ hpv_causes_cc),
+  knows_where_get_hpvvax=case_when(is.na(knows_where_get_hpvvax) ~ "No", TRUE ~ knows_where_get_hpvvax), 
+  has_hpvvax_child=case_when(is.na(has_hpvvax_child) ~ "No", TRUE ~ has_hpvvax_child), 
+  child_vax_others=case_when(is.na(child_vax_others) ~ "Yes", TRUE ~ child_vax_others), 
+  chronic_d=case_when(is.na(chronic_d) ~ "No", TRUE ~ chronic_d), 
+  parent_vax_any=case_when(is.na(parent_vax_any) ~ "Yes", TRUE ~ parent_vax_any), 
+  concern_adverse_rx=case_when(is.na(concern_adverse_rx) ~ "Yes", TRUE ~ concern_adverse_rx), 
+  trust_moh=case_when(is.na(trust_moh) ~ "Yes", TRUE ~ trust_moh)
+  )
+
+
+```
+
+
+# Descriptive analysis --- 
+
+## Sociodemographic
+**Variables:** 
+`age_years`, 
+`gender`, 
+`marital_status`,
+`religion`,
+`h_income`,
+`n_child`,
+`n_child_18`,
+`gender_child`
+
+Summarise data and explore their association with hesitancy. 
+
+```{r}
 
 ```
 
