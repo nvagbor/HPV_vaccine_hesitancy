@@ -1,0 +1,119 @@
+---
+title: "HPV Vaccine Hesitancy Buea - Cameroon"
+author: "Valirie N. Agbor"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Workflow 
+
+1. Import packages and import data 
+2. Explore and clean data - taking note of variables with missing observations (Done)
+3. Determine the number of participants included at baseline and perform exclusions (Done)
+4. Explore variations in levels of physical activity by sex and area (Done)
+5. Create Table 1 (Adjust means and proportions using direct standardisation) (Done)
+6. Perform univariate survival analyses (Done)
+7. Perform multivariable cox regression analysis (All done)
+   - Modelling and variable selection
+   - Consider performing age-sex-specific analysis 
+   - Assessing model assumption 
+8. Perform subgroup analyses 
+9. Perform sensitivity analyses 
+
+
+
+# Import packages and read data 
+
+```{r Import packages and data}
+
+rm (list=ls())
+
+#Loading required packages---
+pacman::p_load(
+  qvcalc, 
+  broom, tidyverse, purrr, stringr, janitor, skimr,
+  Jasper, ggplot2, gridExtra)
+
+#loading baseline data---
+folder.dir <- "C:/Users/Valirie N. Agbor/OneDrive/Ongoing projects/HPV vaccine hesitancy"
+
+df <- read_csv(
+  paste0(folder.dir, "/", "HPV vaccine hesitancy.csv"), 
+  col_types=cols())
+
+
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Data exploration ---
+
+In total, `nrow(df)` participants were included in the study. 
+```{r}
+
+# Filter missing first row 
+df_clean <- slice(df, -1) %>% clean_names()
+
+original_names <- names(df_clean)
+
+# Rename headings --- 
+df_clean <- rename(
+  df_clean, 
+  education="highest_level_of_education", 
+  h_income="monthly_household_income_in_frs", 
+  n_child="number_of_children", 
+  gender_child="gender_of_child_children", 
+  n_child_18="number_of_children_18_years", 
+  heard_of_cc="have_you_heard_of_cervical_cancer", 
+  is_cc_severe="do_you_believe_cervical_cancer_is_a_severe_disease", 
+  heard_of_hpv="have_you_heard_of_human_papillomavirus_hpv", 
+  hpv_causes_cc="did_you_know_that_hpv_causes_cervical_cancer", 
+  knows_cc_vax_exist="did_you_know_there_is_a_vaccine_to_prevent_cervical_cancer", 
+  knows_where_get_hpvvax="do_you_know_where_to_get_the_hpv_vaccine", 
+  has_hpvvax_child="has_your_child_taken_the_hpv_vaccine", 
+  accept_hpvvax_for_child="if_no_would_you_agree_to_have_your_children_vaccinated_against_hpv" , 
+  barriers_to_accept="if_no_or_not_sure_which_of_these_prevents_you_from_vaccinating_your_child_tick_all_that_apply", 
+  child_vax_others="has_your_child_ren_taken_any_other_vaccines", 
+  chronic_d="any_history_of_chronic_disease", 
+  parent_vax_any="to_your_knowledge_have_you_received_any_vaccines_for_yourself", 
+  child_recommended_vax="has_any_of_your_children_received_any_recommended_vaccines", 
+  knows_cc_case="do_you_know_anyone_who_has_had_cervical_cancer", 
+  thinks_vax_safe="do_you_think_the_vaccine_will_be_safe_for_your_children", 
+  concern_adverse_rx="are_you_concerned_that_your_child_may_develop_severe_adverse_reactions_to_the_hpv_vaccine", 
+  leaders_support_vax="do_you_think_leaders_religious_or_political_leaders_teachers_in_your_community_will_support_hpv_vaccinations_for_children", 
+  other_parents_vax="do_you_think_most_parents_around_you_have_vaccinated_their_children_against_hpv_or_will_consider_vaccinating_their_children_against_hpv",
+  trust_moh="the_cameroon_ministry_of_health_is_responsible_for_providing_these_vaccines_for_female_children_do_you_trust_that_the_ministry_of_health_is_concerned_about_the_health_of_the_population", 
+  trust_vax_comps="do_you_trust_the_companies_making_the_hpv_vaccine", 
+  received_badinfo="have_you_heard_anything_bad_about_the_hpv_vaccine", 
+  state_badinfo="if_yes_please_state")
+
+```
+
+## Explore missing data -- 
+
+```{r}
+skim(df_clean)
+#map(.x = df_clean %>% select(-1), class)
+```
+
+## Recode variables -- 
+
+```{r}
+
+df_clean <- 
+  df_clean %>% 
+  select(-timestamp) %>% 
+  mutate(
+    health_area=case_when(health_area == "Mira" ~ "Muea", TRUE ~ health_area), 
+    employment_status=case_when(employment_status=="Umemployed" ~ "Unemployed", 
+                                TRUE ~ employment_status), 
+    is_cc_severe=case_when(heard_of_cc=="No" ~ "Never heard of CC", TRUE ~ is_cc_severe), 
+    hpv_causes_cc=case_when(heard_of_hpv=="No" ~ "Never heard of HPV", TRUE ~ hpv_causes_cc),
+    knows_cc_vax_exist=case_when(heard_of_hpv=="No" & heard_of_cc=="No" ~ "Never heard of HPV or CC", 
+                                 TRUE ~ knows_cc_vax_exist)
+    )
+
+df_clean %>% mutate(across(where(is.character), ~as.factor(.x)))
+
+```
+
