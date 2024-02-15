@@ -32,16 +32,13 @@ rm (list=ls())
 #Loading required packages---
 pacman::p_load(
   qvcalc, 
-  broom, tidyverse, purrr, stringr, janitor, skimr,
+  broom, tidyverse, purrr, stringr, janitor, skimr, 
+  compareGroups, Hmisc, DirectStandardisation,
   Jasper, ggplot2, gridExtra)
 
 #loading baseline data---
 folder.dir <- "C:/Users/Valirie N. Agbor/OneDrive/Ongoing projects/HPV vaccine hesitancy"
-
-df <- read_csv(
-  paste0(folder.dir, "/", "HPV vaccine hesitancy.csv"), 
-  col_types=cols())
-
+df <- read_csv(paste0(folder.dir, "/", "HPV vaccine hesitancy.csv"), col_types=cols())
 
 knitr::opts_chunk$set(echo = FALSE)
 ```
@@ -93,7 +90,7 @@ df_clean <- rename(
 ## Explore missing data -- 
 
 ```{r}
-skim(df_clean)
+# skim(df_clean)
 #map(.x = df_clean %>% select(-1), class)
 ```
 
@@ -105,7 +102,8 @@ df_clean <-
   df_clean %>% 
   select(-timestamp) %>% 
   mutate(
-    health_area=case_when(health_area=="Mira" ~ "Muea", TRUE ~ health_area),
+    gender=factor(gender),
+    health_area=factor(case_when(health_area=="Mira" ~ "Muea", TRUE ~ health_area)),
     education=case_when(
       education=="No formal education" ~ "No formal", 
       education=="Post-secondary/Technical" ~ "Post-secondary", 
@@ -135,7 +133,9 @@ df_clean <- mutate(
   marital_status=case_when(is.na(marital_status) ~ "Married", TRUE ~ marital_status), 
   education=case_when(is.na(education) ~ "Tertiary", TRUE ~ education), 
   religion=case_when(is.na(religion) ~ "Pentecostal", TRUE ~ religion),
-  heard_of_hpv=case_when(is.na(heard_of_hpv) ~ "Yes", TRUE ~ heard_of_hpv), 
+  employment_status=case_when(is.na(employment_status)~"Employed (nonmanual)", TRUE~employment_status),
+  heard_of_hpv=factor(case_when(is.na(heard_of_hpv) ~ "Yes", TRUE ~ heard_of_hpv)),
+  heard_of_cc=factor(heard_of_cc),
   hpv_causes_cc=case_when(is.na(hpv_causes_cc) ~ "Never heard of HPV", TRUE ~ hpv_causes_cc),
   knows_where_get_hpvvax=case_when(is.na(knows_where_get_hpvvax) ~ "No", TRUE ~ knows_where_get_hpvvax), 
   has_hpvvax_child=case_when(is.na(has_hpvvax_child) ~ "No", TRUE ~ has_hpvvax_child), 
@@ -147,6 +147,12 @@ df_clean <- mutate(
   )
 
 
+# Convert variables to factors -- 
+df_clean <- mutate(
+  df_clean, 
+  heard_of_hpv=factor(heard_of_hpv), 
+  heard_of_cc=factor(heard_of_cc)
+)
 ```
 
 
@@ -165,7 +171,258 @@ df_clean <- mutate(
 
 Summarise data and explore their association with hesitancy. 
 
+
+```{r Descriptive Table 1}
+
+df_table <- mutate(
+  df_clean, 
+  age_years=case_when(age_years<20~20, TRUE~age_years), #Record the age observations with ages<19 years
+  age10=factor(case_when(
+    age_years<30~"20-29", 
+    age_years>=30 & age_years<40~"30-39", 
+    age_years>=40 & age_years<50~"40-49",
+    age_years>=50 & age_years<60~"50-59",
+    age_years>=60~"60+")))
+
+require(Hmisc)
+
+## Set appropriate variable labels before tabulations
+
+n_var <- c("age10", "age_years", "health_area", "gender", "education", 
+           "marital_status", "employment_status", "h_income", "religion",
+           "n_child", "n_child_18", "gender_child")
+
+
+l_var <- c("Age group, year", "Age, mean (SD), year", "Health area", "Gender", "Level of education", 
+           "Marital status", "Employment status", "Monthly household income, FCFA", "Religion",
+           "Number of children, median (IQR)", "Number of children < 18 years, median (IQR)", "Child's gender")
+
+desc_table <- select(df_table, all_of(n_var)) 
+
+for (i in seq_along(n_var)) {
+  Hmisc::label(desc_table) <- l_var[[i]]
+}
+
+tab <- descrTable(desc_table)
+
+# Extract tables into excel
+export2xls(tab, file = "Table 1 - xtics of participants.xlsx")
+
+# Get median values for number of child 
+median(desc_table$n_child);quantile(df_table$n_child, probs=c(0.25, 0.75))
+median(desc_table$n_child_18);quantile(df_table$n_child_18, probs=c(0.25, 0.75))
+
+
+detach("package:Hmisc", unload = TRUE)
+
+```
+
+
+# Section 2: Awareness of HPV and cervical cancer ---
+
+**Objective 1:** Level of awareness of HPV and cervical cancer.
+**Objective 2:** Socioeconomic inequalities in the level of awareness of HPV and cervical cancer by 
+age, 
+sex, 
+marital status, 
+education, 
+income, 
+religion, and 
+gender of the child
+
+
+## Descriptive table 
+Means and proportions will be stratified by age, sex, and health area
+
 ```{r}
+
+function.dir <- "C:/Users/Valirie N. Agbor/OneDrive/Ongoing projects/HPV vaccine hesitancy/HPV_vaccine_hesitancy/Custom_functions_epidemiology/R/"
+
+source(paste0(function.dir, "make_standardised_baseline_ckb_data.R"))
+source(paste0(function.dir, "df_transpose.R"))
+source(paste0(function.dir, "make_quartile_var_labels.R"))
+
+
+# Standardise numeric variables ------
+# num_vars <- c("age10")
+# num_labels <- c("Age, mean (SD), year")
+
+# List of categorical variables ---
+cat_vars <- c("education", "marital_status", "employment_status", "h_income", "gender_child")
+
+cat_var_labels <- c("Level of education", "Marital status", "Employment status", 
+                    "Monthly household income, FCFA", "Child's gender")
+
+# Adjustment 
+adjust_vars <- c("age10", "gender", "health_area")
+main_expo <- c("heard_of_hpv", "heard_of_cc")
+
+# Checkpoint
+# stopifnot(length(num_vars)==length(num_labels)) 
+stopifnot(length(cat_vars)==length(cat_var_labels)) 
+
+
+# Standardise categorical variables ---
+df_aware <- map(
+  .x=main_expo, 
+  ~make_standardised_ckb_data(
+     dataset=df_table %>% 
+       select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% 
+       na.omit(.), 
+     categorical_vars=cat_vars, 
+     main_exposure=.x, 
+     adjustment_variables=adjust_vars))    
+
+# Standardise age ---
+df_aware_age <- map(
+  .x=main_expo, 
+  ~make_standardised_ckb_data(
+     dataset=df_table %>% 
+       select(age_years, all_of(c(cat_vars, adjust_vars, main_expo))) %>% 
+       na.omit(.), 
+     numeric_vars="age_years",
+     numeric_vars_labels="Age, mean (SD), years",
+     categorical_vars="age10", 
+     main_exposure=.x, 
+     adjustment_variables=c("gender", "health_area")) %>% 
+  mutate(
+    exposure=stringr::str_replace_all(
+      string=exposure, 
+      pattern="\\.", 
+      replacement="-"
+    )
+  )
+)
+
+
+df_aware <- map2(.x=df_aware, .y=df_aware_age, rbind)
+
+# Gender --- 
+df_aware_gender <- map(
+  .x=main_expo, 
+  ~make_standardised_ckb_data(
+     dataset=df_table %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
+     categorical_vars="gender", # best left unlabelled
+     main_exposure=.x, 
+     adjustment_variables=c("age10", "health_area"))) 
+
+df_aware <- map2(.x=df_aware, .y=df_aware_gender, rbind)
+
+# Health area --- 
+df_aware_area <- map(
+  .x=main_expo, 
+  ~make_standardised_ckb_data(
+     dataset=df_table %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
+     categorical_vars="health_area", # best left unlabelled
+     main_exposure=.x, 
+     adjustment_variables=c("age10", "gender"))) 
+
+df_aware <- map2(.x=df_aware, .y=df_aware_area, rbind)
+
+# Rename and reorder characteristics 
+
+df_xtics_labels <- 
+  data.frame(
+    exposure=c(
+      "Age, mean (SD), years", 
+      "age10_20-29", 
+      "age10_30-39", 
+      "age10_40-49", 
+      "age10_50-59", 
+      "age10_60-",
+      "gender_Female", 
+      "gender_Male",
+      "health_area_Bokwango", 
+      "health_area_Bueatown", 
+      "health_area_Molyko",
+      "health_area_Muea",
+      "education_No.formal", 
+      "education_Primary",
+      "education_Secondary",
+      "education_Post.secondary", 
+      "education_Tertiary",
+      "marital_status_Single", 
+      "marital_status_Married", 
+      "marital_status_Divorced", 
+      "marital_status_Cohabitation",
+      "marital_status_Widow.Widower",
+      "employment_status_Unemployed",
+      "employment_status_Employed..nonmanual.",
+      "employment_status_Employed..manual.",
+      "h_income_.50.000", 
+      "h_income_50.000....100.000",
+      "h_income_100.000....150.000",
+      "h_income_150.000....200.000",
+      "h_income_.200.000", 
+      "gender_child_Both",
+      "gender_child_Female", 
+      "gender_child_Male"), 
+    
+    xtics_lab=c(
+      "Age, mean (SD), years", 
+      "20-29", 
+      "30-39", 
+      "40-49", 
+      "50-59", 
+      "60+",
+      "Female", 
+      "Male",
+      "Bokwango", 
+      "Bueatown", 
+      "Molyko",
+      "Muea",
+      "No formal", 
+      "Primary",
+      "Secondary",
+      "Post secondary", 
+      "Tertiary",
+      "Single", 
+      "Married", 
+      "Divorced", 
+      "Cohabitation",
+      "Widow or widower",
+      "Unemployed",
+      "Employed (nonmanual)",
+      "Employed (manual)",
+      "<50.000", 
+      "50.000 to <100.000",
+      "100.000 to <150.000",
+      "150.000 to <200.000",
+      ">=200.000", 
+      "Both",
+      "Female", 
+      "Male"),
+    
+    stringsAsFactors = FALSE
+  ) 
+
+if(length(df_xtics_labels$exposure)!=length(df_xtics_labels$xtics_lab)) stop("Unequal variable lengths")
+
+
+df_xtics_labels$order_var <- seq_len( nrow(df_xtics_labels) )
+
+
+# Make table ---
+map_dfc(
+  .x=df_aware, 
+  ~merge(df_xtics_labels, .x, by="exposure", all=TRUE) %>% 
+    arrange(order_var) %>% 
+    select(-c(exposure, order_var))) %>% 
+  write.csv(file="Table 2 - Demo and SES by CC and HPV awareness.csv")
+
+# Bind area data to main dataset --
+# df_table1 <- map2(
+#   .x=df_table1, 
+#   .y=df_table1_area, 
+#   ~rbind(.x, .y$area))
+
+```
+
+## Inferential analysis -- 
+
+```{r}
+
+
 
 ```
 
