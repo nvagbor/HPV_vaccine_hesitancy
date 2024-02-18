@@ -34,6 +34,7 @@ pacman::p_load(
   qvcalc, 
   broom, tidyverse, purrr, stringr, janitor, skimr, 
   compareGroups, Hmisc, DirectStandardisation,
+  sandwich, lmtest,
   Jasper, ggplot2, gridExtra)
 
 #loading baseline data---
@@ -118,7 +119,12 @@ df_clean <-
       employment_status=="Employed (agricultural work)" ~ "Employed (manual)", 
       employment_status=="Retired" | employment_status=="House wife" | employment_status=="Student" ~ "Unemployed",
       TRUE ~ employment_status),
-    h_income=case_when(h_income=="200,000 - <250,000" | h_income=="≥250,000" ~ "≥200,000", TRUE ~ h_income),
+    h_income=factor(case_when(
+      h_income=="<50,000"~"<50", 
+      h_income=="100,000 - <150,000"~"100 - <150", 
+      h_income=="150,000 - <200,000"~"150 - <200", 
+      TRUE~"200+"), 
+      levels=c("<50", "100 - <150", "150 - <200", "200+")),
     is_cc_severe=case_when(heard_of_cc=="No" ~ "Never heard of CC", TRUE ~ is_cc_severe), 
     hpv_causes_cc=case_when(heard_of_hpv=="No" ~ "Never heard of HPV", TRUE ~ hpv_causes_cc),
     knows_cc_vax_exist=case_when(heard_of_hpv=="No" & heard_of_cc=="No" ~ "Never heard of HPV or CC", TRUE ~ knows_cc_vax_exist), 
@@ -174,7 +180,7 @@ Summarise data and explore their association with hesitancy.
 
 ```{r Descriptive Table 1}
 
-df_table <- mutate(
+df_clean <- mutate(
   df_clean, 
   age_years=case_when(age_years<20~20, TRUE~age_years), #Record the age observations with ages<19 years
   age10=factor(case_when(
@@ -197,7 +203,7 @@ l_var <- c("Age group, year", "Age, mean (SD), year", "Health area", "Gender", "
            "Marital status", "Employment status", "Monthly household income, FCFA", "Religion",
            "Number of children, median (IQR)", "Number of children < 18 years, median (IQR)", "Child's gender")
 
-desc_table <- select(df_table, all_of(n_var)) 
+desc_table <- select(df_clean, all_of(n_var)) 
 
 for (i in seq_along(n_var)) {
   Hmisc::label(desc_table) <- l_var[[i]]
@@ -206,11 +212,11 @@ for (i in seq_along(n_var)) {
 tab <- descrTable(desc_table)
 
 # Extract tables into excel
-export2xls(tab, file = "Table 1 - xtics of participants.xlsx")
+# export2xls(tab, file = "Table 1 - xtics of participants.xlsx")
 
 # Get median values for number of child 
-median(desc_table$n_child);quantile(df_table$n_child, probs=c(0.25, 0.75))
-median(desc_table$n_child_18);quantile(df_table$n_child_18, probs=c(0.25, 0.75))
+median(desc_table$n_child);quantile(desc_table$n_child, probs=c(0.25, 0.75))
+median(desc_table$n_child_18);quantile(desc_table$n_child_18, probs=c(0.25, 0.75))
 
 
 detach("package:Hmisc", unload = TRUE)
@@ -241,7 +247,9 @@ function.dir <- "C:/Users/Valirie N. Agbor/OneDrive/Ongoing projects/HPV vaccine
 source(paste0(function.dir, "make_standardised_baseline_ckb_data.R"))
 source(paste0(function.dir, "df_transpose.R"))
 source(paste0(function.dir, "make_quartile_var_labels.R"))
-
+source(paste0(function.dir, "trend_het_test.R"))
+source(paste0(function.dir, "order_row.R"))
+source(paste0(function.dir, "add_table_header.R"))
 
 # Standardise numeric variables ------
 # num_vars <- c("age10")
@@ -266,7 +274,7 @@ stopifnot(length(cat_vars)==length(cat_var_labels))
 df_aware <- map(
   .x=main_expo, 
   ~make_standardised_ckb_data(
-     dataset=df_table %>% 
+     dataset=df_clean %>% 
        select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% 
        na.omit(.), 
      categorical_vars=cat_vars, 
@@ -277,7 +285,7 @@ df_aware <- map(
 df_aware_age <- map(
   .x=main_expo, 
   ~make_standardised_ckb_data(
-     dataset=df_table %>% 
+     dataset=df_clean %>% 
        select(age_years, all_of(c(cat_vars, adjust_vars, main_expo))) %>% 
        na.omit(.), 
      numeric_vars="age_years",
@@ -301,7 +309,7 @@ df_aware <- map2(.x=df_aware, .y=df_aware_age, rbind)
 df_aware_gender <- map(
   .x=main_expo, 
   ~make_standardised_ckb_data(
-     dataset=df_table %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
+     dataset=df_clean %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
      categorical_vars="gender", # best left unlabelled
      main_exposure=.x, 
      adjustment_variables=c("age10", "health_area"))) 
@@ -312,7 +320,7 @@ df_aware <- map2(.x=df_aware, .y=df_aware_gender, rbind)
 df_aware_area <- map(
   .x=main_expo, 
   ~make_standardised_ckb_data(
-     dataset=df_table %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
+     dataset=df_clean %>% select(all_of(c(cat_vars, adjust_vars, main_expo))) %>% na.omit(.), 
      categorical_vars="health_area", # best left unlabelled
      main_exposure=.x, 
      adjustment_variables=c("age10", "gender"))) 
@@ -349,11 +357,11 @@ df_xtics_labels <-
       "employment_status_Unemployed",
       "employment_status_Employed..nonmanual.",
       "employment_status_Employed..manual.",
-      "h_income_.50.000", 
-      "h_income_50.000....100.000",
-      "h_income_100.000....150.000",
-      "h_income_150.000....200.000",
-      "h_income_.200.000", 
+      "h_income_.50", 
+      "h_income_50....100",
+      "h_income_100....150",
+      "h_income_150....200",
+      "h_income_200.", 
       "gender_child_Both",
       "gender_child_Female", 
       "gender_child_Male"), 
@@ -384,11 +392,11 @@ df_xtics_labels <-
       "Unemployed",
       "Employed (nonmanual)",
       "Employed (manual)",
-      "<50.000", 
-      "50.000 to <100.000",
-      "100.000 to <150.000",
-      "150.000 to <200.000",
-      ">=200.000", 
+      "<50", 
+      "50 to <100",
+      "100 to <150",
+      "150 to <200",
+      ">200+", 
       "Both",
       "Female", 
       "Male"),
@@ -403,22 +411,369 @@ df_xtics_labels$order_var <- seq_len( nrow(df_xtics_labels) )
 
 
 # Make table ---
-map_dfc(
-  .x=df_aware, 
-  ~merge(df_xtics_labels, .x, by="exposure", all=TRUE) %>% 
-    arrange(order_var) %>% 
-    select(-c(exposure, order_var))) %>% 
-  write.csv(file="Table 2 - Demo and SES by CC and HPV awareness.csv")
+# map_dfc(
+#   .x=df_aware, 
+#   ~merge(df_xtics_labels, .x, by="exposure", all=TRUE) %>% 
+#     arrange(order_var) %>% 
+#     select(-c(exposure, order_var))) %>% 
+#   write.csv(file="Table 2 - Demo and SES by CC and HPV awareness.csv")
 
-# Bind area data to main dataset --
-# df_table1 <- map2(
-#   .x=df_table1, 
-#   .y=df_table1_area, 
-#   ~rbind(.x, .y$area))
 
 ```
 
 ## Inferential analysis -- 
+
+Assess inequalities in the awareness of HPV and cervical cancer by: 
+1 - Age: adjusting for sex, health area, education, marital status, education, employment, income, chronic disease
+2 - Sex: 
+3 - Marital status: 
+4 - Health area:
+5 - Education: 
+6 - Employment status: 
+7 - Income
+8 - Chronic disease 
+9 - Received any vaccine
+
+Account for clustering using **robust standard errors**
+
+**Outcomes:** HPV awareness and cervical cancer awareness 
+
+```{r}
+
+# Data manipulation: Ensure sufficient number of observations per category
+df_clean <- 
+  df_clean %>% 
+  mutate(
+    edu_recode=factor(case_when(education=="No formal"|education=="Primary"~"No formal or Primary", 
+                                TRUE~education),
+                      levels=c("No formal or Primary","Secondary","Post-secondary","Tertiary")), 
+    edu_recode=forcats::fct_rev(edu_recode), #Reverse levels to frame the messaging of the results
+    h_income=forcats::fct_rev(h_income),
+    
+    m_status=factor(case_when(marital_status=="Divorced"|marital_status=="Widow/Widower"~"Divorced/Widow/Widower",
+                              marital_status=="Cohabitation"~"Cohabiting", 
+                              TRUE~marital_status), 
+                    levels=c("Single","Married","Cohabiting","Divorced/Widow/Widower")),
+    employment_status=factor(employment_status, levels=c("Unemployed","Employed (manual)","Employed (nonmanual)")),  
+    chronic_d=factor(case_when(chronic_d=="Not sure"~"No", TRUE~chronic_d)), 
+    parent_vax_any=factor(case_when(parent_vax_any=="Not sure"~"No", TRUE~parent_vax_any)), 
+    parent_vax_any=fct_rev(parent_vax_any), 
+    heard_of_cc=fct_rev(heard_of_cc), 
+    heard_of_hpv=fct_rev(heard_of_hpv)
+  )
+
+# Create list of variables and use for loop ---
+## Order of the list: "<MAIN VARIABLE>"="<ADJUSTMENT VARIABLES>"
+vars_list=list(
+  "age10"=c("gender", "health_area", "m_status", "edu_recode", "employment_status", "h_income", "chronic_d"), 
+  "gender"=c("age_years", "I(age_years^2)", "health_area", "m_status", "edu_recode", "employment_status", "h_income", "chronic_d"),
+  "m_status"=c("age_years", "I(age_years^2)", "gender", "health_area",  "edu_recode", "employment_status", "h_income", "chronic_d"), 
+  # "health_area"=c("age_years", "I(age_years^2)",  "gender", "m_status", "edu_recode", "employment_status", "h_income", "chronic_d"),
+  "edu_recode"=c("age_years", "I(age_years^2)", "gender", "health_area", "m_status", "employment_status", "h_income", "chronic_d"),
+  "employment_status"=c("age_years", "I(age_years^2)", "gender", "health_area", "m_status", "edu_recode", "h_income", "chronic_d"),
+  "h_income"=c("age_years", "I(age_years^2)", "gender", "health_area", "m_status", "employment_status", "edu_recode", "chronic_d"),
+  "chronic_d"=c("age_years", "I(age_years^2)", "gender", "health_area", "m_status", "employment_status", "edu_recode", "h_income"),
+  "parent_vax_any"=c("age_years", "I(age_years^2)", "gender", "health_area", "m_status", "employment_status", "edu_recode", "h_income", "chronic_d")
+)
+
+hypo_test <- list(
+  "age10"="Trend", 
+  "gender"="Heterogeneity",
+  "m_status"="Heterogeneity", 
+  # "health_area"="Heterogeneity",
+  "edu_recode"="Trend",
+  "employment_status"="Heterogeneity",
+  "h_income"="Heterogeneity",
+  "chronic_d"="Trend", 
+  "parent_vax_any"="Heterogeneity")
+
+expo_names <- list(
+  "age10"="Age, years", 
+  "gender"="Sex",
+  "m_status"="Marital status", 
+  # "health_area"="Health area",
+  "edu_recode"="Education",
+  "employment_status"="Employment status",
+  "h_income"="Monthly household income",
+  "chronic_d"="Chronic disease", 
+  "parent_vax_any"="Parent has received any vaccination")
+
+vars_outcome <- c("heard_of_hpv", "heard_of_cc")
+
+
+result_list <- list()
+
+for (oo in vars_outcome) {
+  
+  model_temp <- list()
+  
+  for (jj in seq_along(vars_list)) {
+  
+  expo_temp <- names(vars_list)[jj]
+  
+  # Convert non-factor exposures to factor before regression analysis
+  if(!is.factor(df_clean[[expo_temp]])) {df_clean[ ,expo_temp] <- as.factor(df_clean[[expo_temp]])}
+  
+  # Get number of event 
+  n_obs <- 
+    df_clean %>% 
+    group_by(.data[[expo_temp]]) %>% 
+    summarise(n_events=sum(.data[[oo]]=="No"), all=n(), .groups="drop") %>% 
+    mutate(!!rlang::sym(expo_temp):=as.character(.data[[expo_temp]])) %>% 
+    rename("exposure"=all_of(expo_temp))
+  
+  # Fit regression
+  covariates_temp <- paste(c(expo_temp, vars_list[[jj]]), collapse=" + ") # RHS of regression formula
+  form <- paste(oo, " ~ ", covariates_temp) # Predict odds of NOT being aware
+  
+  fit.model <- glm(as.formula(form), family=binomial(link="logit"), data=df_clean)
+  model_temp[["Model_summary"]][[expo_temp]] <- summary(fit.model)
+  
+  # Correct for clustering from health area 
+  cov_matrix <- sandwich::vcovCL(fit.model, cluster=df_clean[["health_area"]]) # Get covariance matrix 
+  robust.fit <- 
+    lmtest::coeftest(fit.model, vcov.=cov_matrix, cluster=~health_area) %>% # Fit robust model
+    tidy(.) %>% 
+    filter(grepl(pattern=expo_temp, term)) %>% 
+    add_row(.before=1) %>%
+    transmute(se.robust=std.error, p.robust=p.value)
+    
+  model_temp[["Results"]][[expo_temp]] <- 
+    broom::tidy(fit.model) %>% 
+    dplyr::filter(grepl(pattern=expo_temp, term)) %>% 
+    dplyr::add_row(.before=1) %>% 
+    dplyr::transmute(
+      exposure_name=expo_names[[expo_temp]],
+      exposure=levels(df_clean[[expo_temp]]), 
+      estimate=case_when(is.na(estimate)~0, TRUE~estimate), 
+      std.error=std.error, 
+      p.value=p.value) %>% 
+    inner_join(n_obs, by="exposure") %>% # Join number of observations to the data 
+    bind_cols(robust.fit)
+  
+  ## Calculate floating absolute risks (Used only for plotting) 
+  n_expo_level <- length(levels(df_clean[[expo_temp]]))
+  
+  if(n_expo_level>=3){
+    FAR <-
+      qvcalc::qvcalc(fit.model, expo_temp)$qvframe %>% 
+      transmute(quasiSE=quasiSE, quasiVar=quasiVar) %>% 
+      `row.names<-`(NULL)
+    
+    model_temp[["Results"]][[expo_temp]] <- bind_cols(model_temp[["Results"]][[expo_temp]], FAR)
+    
+    }
+  
+  # Continue here: Get floating absolute risk and plot and results 
+}
+ 
+  result_list[[oo]] <- model_temp
+}
+
+
+# Formatting to harmonise column names and prepare to make forest plot 
+df_reg <- map(.x=result_list, ~.x[["Results"]])
+
+for (q in seq_along(df_reg)) {
+  
+  for (r in seq_along(df_reg[[q]])) {
+    
+    if(nrow(df_reg[[q]][[r]])==2){
+      df_reg[[q]][[r]] <- mutate(
+        df_reg[[q]][[r]],
+        quasiSE=std.error, 
+        quasiVar=NA)
+    }
+  }
+  
+}
+
+# Bind datasets
+df_bind <- map(.x=df_reg, bind_rows)
+
+# Create table for reporting 
+forest.table <- map(
+  .x=df_bind, 
+  ~transmute(
+    .x, 
+    exposure_name=exposure_name, 
+    exposure=exposure, 
+    unaware_n=n_events, 
+    N=all, 
+    or_ci=case_when(estimate==0~"Reference", 
+                    TRUE~paste0(format(round(exp(estimate), 2), nsmall=2), 
+                                 " (", 
+                                 format(round(exp(estimate - 1.96*se.robust), 2), nsmall=2), 
+                                 " - ", 
+                                 format(round(exp(estimate + 1.96*se.robust), 2), nsmall=2), 
+                                 ")")), 
+    p.robust=case_when(is.na(p.robust)~"", 
+                       p.robust>0.00001~format(round(p.robust, 4), nsmall=4), 
+                       TRUE~format(p.robust, scientific=TRUE))
+    )
+    
+  )
+
+forest.table <- map(
+  .x=forest.table,
+  ~add_table_header(
+    data=.x, 
+    group_var=exposure_name, 
+    group_level_var=exposure, 
+    extra_space=FALSE) 
+  )
+
+# Export to excel table 
+walk2(.x=forest.table, 
+      .y=c("Regression HPV.csv", "Regression Cancer.csv"), 
+      ~write.csv(.x, file=.y))
+
+```
+
+## Make linear plots --- 
+
+```{r}
+
+# Filter data for shape plots 
+shape_data <- list()
+
+for (k in names(df_reg)) {
+  shape_data[[k]] <- map(.x=c("age10", "edu_recode", "h_income"), ~df_reg[[k]][[.x]])
+}
+
+# Create exposure level for age for plotting 
+mean_age <- 
+   df_clean %>% 
+   group_by(age10) %>% 
+   summarise(m_age=mean(age_years), .groups = "drop") %>% 
+   pull(m_age)
+
+shape_data$heard_of_hpv[[1]] <- dplyr::mutate(shape_data$heard_of_hpv[[1]], Level=mean_age)
+shape_data$heard_of_cc[[1]] <- mutate(shape_data$heard_of_cc[[1]], Level=mean_age)
+
+# Create exposure level for education and income for plotting 
+for (j in names(shape_data)) {
+  
+  for(jj in 2:3){
+  shape_data[[j]][[jj]] <- shape_data[[j]][[jj]] %>% mutate(Level=rev(seq_len(nrow(.))))
+  }
+
+}
+
+# select which columns we want, and give them appropriate names
+plotdata <- list()
+
+for(m in names(shape_data)){
+  plotdata[[m]] <- map(
+    .x=shape_data[[m]],
+    ~with(.x, data.frame(RF_Level=Level, 
+                         Estimate=estimate, 
+                         StdErr=quasiSE, 
+                         Events_ir=n_events, 
+                         exp_est=exp(estimate), 
+                         Name=exposure_name)) %>% 
+               `row.names<-`(NULL))
+}
+
+plotdata <- flatten(plotdata)   
+
+# headers to put above each column of panels
+headers  <- c("(A) Age", "(B) Education", "(C) Income", "(D)", "(E)", "(F)")
+x.Labels <- c(rep("", 3), "Age, years", "Highest level of education", "\n \nMonthly household\nincome (in 10,000 FCFA)")
+
+X.Ticks <- list(
+  seq(20, 80, 10), 
+  rev(seq_len(4)), 
+  rev(seq_len(4))
+)
+
+X.Ticks.Labels <- list(
+  rep("", 7), 
+  rep("", 4), 
+  rep("", 4),
+  paste0(seq(20, 80, 10), "\n"), 
+  c("Tertiary\n","Post\nsecondary", "Secondary\n", "No or\nPrimary"), 
+  c("20+\n","15-19.9\n", "10-14.9\n", "<5\n")
+  )
+
+# events_N <- map_chr(.x = data_expanded, ~paste0(sum(.x$lex.Xst), "/", nrow(merged_data)))
+  
+
+# Set page margins: format is c(bottom, left, top, right)
+# par(mar=c(5.63354827113009, 2, 4.63354827113009, 2))
+
+# set up the Jasper page
+type <- "JPG"
+SetPage(orient ="LANDSCAPE", 
+        nlong = 3, 
+        nshort = 2, 
+        page_height =6,
+        page_width =7,
+        type=type, 
+        page_dpi = 600,
+        page_pointsize = 2,
+        suppress.date = TRUE,
+        titlespace=0.02,
+#         footer="All analyses were stratified by age-at-risk, sex, study area and smoking status and adjusted for income, education, occupation, \noutdoor ambient temperature, alcohol, sedentary time, physical activity, heart rate, body mass index, diabetes, ephysema, bronchitis and COPD
+# 
+# The numbers above the confidence intervals (CIs, vertical line) are the adjusted HRs
+# The numbers below the CIs are the number of event (adjusted incidence rate per 10\u00B3 person-years)\n \n
+#         
+# ",
+        footer.cex = 1.3,
+        footerspace=0.08,
+        filestem="Figure 1 Shape Plots Awareness")
+
+
+# loop over the panels in a slightly strange order, to match data
+for (cc in seq_along(plotdata)) { 
+	# do the linear plot for this set of data
+	LinearPlot(plotdata[[cc]], 
+	           new.plot          = TRUE, 
+	           mainfont          = 0.9,   
+	           YLogScale         = TRUE, 
+	           ExponentiateDataOnPlot = TRUE,
+	           boxparm.stderr    = 0.08, 
+	           xlim              = rep(list(c(20, 80), c(0.9, 4.1), c(0.9, 4.1)), 2)[[cc]],  
+	           xticks            = rep(X.Ticks, 2)[[cc]], 
+	           xticklabs         = X.Ticks.Labels[[cc]],
+	           ylim              = c(0.2, 16), 
+	           yticks            = c(0.2, 0.5, 1, 2, 4, 8, 16), 
+	           yticklabs         = c("", "0.5", "1", "2", "4", "8", "16"),
+	           margins           = list(c(2,5,3,1), c(2,2.5,3,2), c(2,2.5,3,2), 
+	                                    c(2,5,3,1), c(2,2.5,3,2), c(2,2.5,3,2))[[cc]],
+	           xticklabs.cex     = 0.7, 
+	           yticklabs.cex     = 0.7,
+	           PointLabelsTop    = "exp_est",
+	           PointLabelsBottom = "Events_ir",
+	           PointLabelsCEX    = 0.75, 
+	           TruncateAtPlotLims = FALSE,
+	           CIsOnTop = TRUE)
+	
+	# add axis labels
+	AxisLabels(ylab=rep(list("\nOdds ratio (95% CI)", NULL, NULL), 3)[[cc]], 
+	           xlab=x.Labels[cc], 
+	           mainfont=0.8)
+	
+	par(xpd=NA)
+	
+	# add panel heading
+	text(x=rep(c(10, 0.5, 0.5), 2)[cc], y=log(20), labels=headers[cc], font=2, cex=0.85, adj=c(0,0))
+	
+	# Add superheading
+	if(cc==1){text(x=0, y=log(30), labels="Human Papillomavirus", font=2, cex=1, adj=c(0,0), color="navyblue")}
+	if(cc==4){text(x=0, y=log(30), labels="Cervical cancer", font=2, cex=1, adj=c(0,0), color="navyblue")}
+	
+	
+}
+
+
+closeFile(type)
+
+
+```
+
+# Vaccine hesitancy ---
 
 ```{r}
 
