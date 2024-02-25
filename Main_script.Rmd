@@ -433,7 +433,7 @@ Assess inequalities in the awareness of HPV and cervical cancer by:
 8 - Chronic disease 
 9 - Received any vaccine
 
-Account for clustering using **robust standard errors**
+Account for clustering using **robust standard errors**: https://www.r-bloggers.com/2021/05/clustered-standard-errors-with-r/
 
 **Outcomes:** HPV awareness and cervical cancer awareness 
 
