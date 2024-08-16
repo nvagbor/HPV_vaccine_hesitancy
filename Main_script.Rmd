@@ -1151,3 +1151,7 @@ hesitancy_tab <- add_table_header(forest.table, group_var = exposure_name, group
 write.csv(hesitancy_tab, file="Hesitancy - regression.csv")
 ```
 
+# End of script -- 
+```{r}
+writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
+```
